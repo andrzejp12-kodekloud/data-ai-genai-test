@@ -4,6 +4,13 @@
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
+registries:
+  github-octapharmaplasma:
+    type: git
+    url: https://github.com
+    username: x-access-token
+    password: ${{ secrets.GHPC_INSTALL_PRIVATE_PACKAGES }}
+    
 updates:
   - package-ecosystem: "github-actions" # See documentation for possible values
     directory: "/" # Location of package manifests
