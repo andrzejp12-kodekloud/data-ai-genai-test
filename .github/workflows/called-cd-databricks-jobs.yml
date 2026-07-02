@@ -1,0 +1,86 @@
+# Pre-requisites:
+# (1) Enable deployment from the desired branch by configuring it in Repo -> Settings -> Environments -> Deployment Branches.
+# (2) The repository includes three standard environments: dev, stg, prd. Each environment must define the following variables:
+#     - DATABRICKS_CLIENT_ID
+#     - DATABRICKS_HOST
+# (3) Each environment must also contain the following secret:
+#     - DATABRICKS_CLIENT_SECRET
+# (4) If multiple domains are used, three environments must be created for each domain using the naming pattern: swe-[domain]-[env], where env is one of dev, stg, prd.
+# (5) The repository must be visible to the 'data-and-ai' GitHub runner group of the Octapharma organization, which includes a runner with the tag 'runner-data-ai-databricks'.
+
+name: CD - Package and Jobs (Called)
+
+on:
+  workflow_call:
+    inputs:
+      dab_path:
+        required: false
+        type: string
+        default: databricks
+      domain:
+        description: Only specify domain if this repo has more than one domain configured
+        required: false
+        type: string
+      region:
+        description: Region in which the workspace is deployed
+        required: false
+        type: string
+        default: swe
+
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: Only specify domain if this repo has more than one domain configured
+        required: false
+        type: choice
+        options:
+          - manu
+          - rrnd
+          - sand
+
+jobs:
+  deploy_job_to_dev:
+    name: Deploy job (dev)
+    uses: ./.github/workflows/utils-databricks-deploy-job.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.domain && format('{0}-{1}-dev',inputs.region, inputs.domain) || 'dev' }}
+      domain: ${{ inputs.domain }}
+      runner_label: ${{ inputs.region == 'swe' && 'corporate-projects' || 'opi-projects' }}
+      dab_path: ${{ inputs.dab_path }}
+
+  deploy_job_to_qc1:
+    if: ${{ inputs.region == 'eus' && github.ref == 'refs/heads/main' }}
+    name: Deploy job (qc1)
+    needs: deploy_job_to_dev
+    uses: ./.github/workflows/utils-databricks-deploy-job.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.domain && format('{0}-{1}-qc1', inputs.region, inputs.domain) || 'qc1' }}
+      domain: ${{ inputs.domain }}
+      runner_label: ${{ inputs.region == 'swe' && 'corporate-projects' || 'opi-projects' }}
+      dab_path: ${{ inputs.dab_path }}
+
+  deploy_job_to_stg:
+    if: ${{ github.ref == 'refs/heads/main' && (always() && (needs.deploy_job_to_qc1.result == 'success' || needs.deploy_job_to_qc1.result == 'skipped')) }}
+    name: Deploy job (stg)
+    needs: deploy_job_to_qc1
+    uses: ./.github/workflows/utils-databricks-deploy-job.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.domain && format('{0}-{1}-stg', inputs.region, inputs.domain) || 'stg' }}
+      domain: ${{ inputs.domain }}
+      runner_label: ${{ inputs.region == 'swe' && 'corporate-projects' || 'opi-projects' }}
+      dab_path: ${{ inputs.dab_path }}
+
+  deploy_job_to_prd:
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.deploy_job_to_stg.result == 'success' }}
+    name: Deploy job (prd)
+    needs: deploy_job_to_stg
+    uses: ./.github/workflows/utils-databricks-deploy-job.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.domain && format('{0}-{1}-prd', inputs.region, inputs.domain) || 'prd' }}
+      domain: ${{ inputs.domain }}
+      runner_label: ${{ inputs.region == 'swe' && 'corporate-projects' || 'opi-projects' }}
+      dab_path: ${{ inputs.dab_path }}
